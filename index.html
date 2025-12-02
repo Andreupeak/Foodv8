@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>NutriTrack</title>
+    
+    <!-- iOS Specific Meta Tags for "App-like" Feel -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="NutriTrack">
+
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Html5Qrcode for Barcode Scanning -->
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- App Icon (using a data URI for instant icon) -->
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 fill=%22%2316a34a%22/><text y=%22.9em%22 font-size=%2290%22>🥑</text></svg>">
+
+    <style>
+        /* iOS Safe Area adjustments */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f3f4f6;
+            /* Ensure the app fills the whole screen including notch area */
+            min-height: 100vh;
+            padding-top: env(safe-area-inset-top);
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+        
+        /* Navigation Bar Safe Area */
+        .nav-safe-bottom {
+            padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+        }
+
+        /* Content Padding to avoid overlap with nav bar */
+        .content-safe-area {
+            padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+        }
+
+        /* Hide scrollbar for clean UI */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        
+        /* Prevent bounce effect in iOS */
+        html {
+            overscroll-behavior-y: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="root" class="h-full"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- COMPONENTS ---
+
+        // 1. SETTINGS COMPONENT
+        const Settings = ({ keys, setKeys }) => {
+            const handleChange = (e) => {
+                const { name, value } = e.target;
+                const newKeys = { ...keys, [name]: value };
+                setKeys(newKeys);
+                localStorage.setItem('nutriTrackKeys', JSON.stringify(newKeys));
+            };
+
+            return (
+                <div className="p-4 space-y-4 content-safe-area">
+                    <h2 className="text-2xl font-bold text-gray-800 mb-4 mt-2">API Settings</h2>
+                    <div className="bg-white p-4 rounded-xl shadow-sm">
+                        <p className="text-sm text-gray-500 mb-4">
+                            Enter your keys here. They are saved locally on your device.
+                        </p>
+                        {[
+                            { label: "OpenAI API Key (Paid)", name: "openai" },
+                            { label: "Edamam App ID", name: "edamamId" },
+                            { label: "Edamam App Key", name: "edamamKey" },
+                            { label: "Spoonacular Key", name: "spoonacular" },
+                            { label: "FatSecret Key", name: "fatsecret" }
+                        ].map(field => (
+                            <div key={field.name} className="mb-3">
+                                <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">{field.label}</label>
+                                <input
+                                    type="password"
+                                    name={field.name}
+                                    value={keys[field.name] || ''}
+                                    onChange={handleChange}
+                                    className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
+                                    placeholder="..."
+                                />
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        // 2. SEARCH COMPONENT
+        const Search = () => {
+            const [query, setQuery] = useState('');
+            const [results, setResults] = useState([]);
+            const [loading, setLoading] = useState(false);
+            const [details, setDetails] = useState(null);
+
+            useEffect(() => {
+                const delayDebounceFn = setTimeout(() => {
+                    if (query.length > 2) fetchFood();
+                }, 600);
+                return () => clearTimeout(delayDebounceFn);
+            }, [query]);
+
+            const fetchFood = async () => {
+                setLoading(true);
+                try {
+                    const res = await fetch(`https://de.openfoodfacts.org/cgi/search.pl?search_terms=${query}&search_simple=1&action=process&json=1&page_size=10`);
+                    const data = await res.json();
+                    
+                    if (data.products && data.products.length > 0) {
+                        setResults(data.products);
+                    } else {
+                        const resWorld = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${query}&search_simple=1&action=process&json=1&page_size=10`);
+                        const dataWorld = await resWorld.json();
+                        setResults(dataWorld.products || []);
+                    }
+                } catch (err) {
+                    console.error("Error fetching food", err);
+                }
+                setLoading(false);
+            };
+
+            return (
+                <div className="flex flex-col h-full">
+                    <div className="p-4 bg-gray-50 z-10 sticky top-0">
+                        <h2 className="text-2xl font-bold text-gray-800 mb-4 mt-2">Food Search</h2>
+                        <div className="relative">
+                            <i className="fa-solid fa-magnifying-glass absolute left-4 top-3.5 text-gray-400"></i>
+                            <input 
+                                type="text" 
+                                className="w-full pl-10 pr-4 py-3 rounded-xl border-none shadow-sm bg-white focus:ring-2 focus:ring-green-500 outline-none"
+                                placeholder="Search (e.g. Apple)..."
+                                value={query}
+                                onChange={(e) => { setQuery(e.target.value); setDetails(null); }}
+                            />
+                        </div>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto no-scrollbar px-4 content-safe-area">
+                        {loading && <div className="text-center text-gray-500 mt-4">Searching...</div>}
+                        
+                        {!details ? (
+                            <div className="space-y-3 pb-20">
+                                {results.map(item => (
+                                    <div key={item._id} onClick={() => setDetails(item)} className="bg-white p-3 rounded-xl shadow-sm flex items-center space-x-3 active:scale-95 transition-transform">
+                                        <div className="w-12 h-12 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
+                                            {item.image_front_small_url ? (
+                                                <img src={item.image_front_small_url} alt={item.product_name} className="w-full h-full object-cover" />
+                                            ) : (
+                                                <div className="w-full h-full flex items-center justify-center text-gray-300"><i className="fa-solid fa-utensils"></i></div>
+                                            )}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <h3 className="font-semibold text-gray-800 text-sm truncate">{item.product_name || "Unknown"}</h3>
+                                            <p className="text-xs text-gray-500 truncate">{item.brands || "No Brand"}</p>
+                                        </div>
+                                        <div className="text-xs font-bold bg-green-100 text-green-700 px-2 py-1 rounded whitespace-nowrap">
+                                            {Math.round(item.nutriments?.['energy-kcal_100g'] || 0)} kcal
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="bg-white rounded-xl shadow-lg overflow-hidden pb-4 mb-20">
+                                <div className="relative h-48 bg-gray-200">
+                                    {details.image_front_url && <img src={details.image_front_url} className="w-full h-full object-cover" />}
+                                    <button onClick={() => setDetails(null)} className="absolute top-2 left-2 bg-white/80 p-2 rounded-full shadow"><i className="fa-solid fa-arrow-left"></i></button>
+                                </div>
+                                <div className="p-4">
+                                    <h2 className="text-xl font-bold mb-1">{details.product_name}</h2>
+                                    <p className="text-gray-500 text-sm mb-4">{details.brands}</p>
+                                    
+                                    <h3 className="font-semibold mb-2">Per 100g/ml</h3>
+                                    <div className="grid grid-cols-4 gap-2 text-center text-sm">
+                                        <div className="bg-orange-50 p-2 rounded-lg">
+                                            <div className="font-bold text-orange-600">{Math.round(details.nutriments['energy-kcal_100g'] || 0)}</div>
+                                            <div className="text-xs text-gray-500">kcal</div>
+                                        </div>
+                                        <div className="bg-blue-50 p-2 rounded-lg">
+                                            <div className="font-bold text-blue-600">{details.nutriments.proteins_100g?.toFixed(1) || 0}g</div>
+                                            <div className="text-xs text-gray-500">Prot</div>
+                                        </div>
+                                        <div className="bg-yellow-50 p-2 rounded-lg">
+                                            <div className="font-bold text-yellow-600">{details.nutriments.carbohydrates_100g?.toFixed(1) || 0}g</div>
+                                            <div className="text-xs text-gray-500">Carb</div>
+                                        </div>
+                                        <div className="bg-red-50 p-2 rounded-lg">
+                                            <div className="font-bold text-red-600">{details.nutriments.fat_100g?.toFixed(1) || 0}g</div>
+                                            <div className="text-xs text-gray-500">Fat</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        // 3. SCANNER COMPONENT
+        const Scanner = () => {
+            const [scanResult, setScanResult] = useState(null);
+            const [product, setProduct] = useState(null);
+            const [isScanning, setIsScanning] = useState(false);
+
+            useEffect(() => {
+                let html5QrcodeScanner;
+                if (isScanning && !scanResult) {
+                    html5QrcodeScanner = new Html5Qrcode("reader");
+                    const config = { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 };
+                    html5QrcodeScanner.start({ facingMode: "environment" }, config, onScanSuccess)
+                        .catch(err => console.log("Camera error", err));
+                }
+                return () => {
+                    if (html5QrcodeScanner) html5QrcodeScanner.stop().then(() => html5QrcodeScanner.clear());
+                };
+            }, [isScanning]);
+
+            const onScanSuccess = (decodedText) => {
+                setScanResult(decodedText);
+                setIsScanning(false);
+                fetchProduct(decodedText);
+            };
+
+            const fetchProduct = async (barcode) => {
+                try {
+                    const res = await fetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`);
+                    const data = await res.json();
+                    if (data.status === 1) setProduct(data.product);
+                    else alert("Product not found in database.");
+                } catch (e) { console.error(e); }
+            };
+
+            return (
+                <div className="p-4 h-full flex flex-col content-safe-area">
+                    <h2 className="text-2xl font-bold text-gray-800 mb-4 mt-2">Scanner</h2>
+                    
+                    {!scanResult && !isScanning && (
+                        <div className="flex-1 flex flex-col items-center justify-center">
+                            <button onClick={() => setIsScanning(true)} className="bg-green-500 hover:bg-green-600 text-white rounded-full w-32 h-32 flex flex-col items-center justify-center shadow-lg transform transition active:scale-95">
+                                <i className="fa-solid fa-barcode text-3xl mb-2"></i>
+                                <span className="font-semibold">Scan</span>
+                            </button>
+                        </div>
+                    )}
+
+                    {isScanning && (
+                        <div className="flex-1 overflow-hidden rounded-xl bg-black relative">
+                            <div id="reader" className="w-full h-full"></div>
+                            <button onClick={() => setIsScanning(false)} className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-red-500 text-white px-6 py-2 rounded-full shadow-lg">Stop</button>
+                        </div>
+                    )}
+
+                    {product && (
+                        <div className="mt-4 bg-white p-4 rounded-xl shadow-lg">
+                            <div className="flex items-center space-x-4">
+                                {product.image_front_small_url && <img src={product.image_front_small_url} className="w-16 h-16 rounded object-cover bg-gray-100" />}
+                                <div>
+                                    <h3 className="font-bold">{product.product_name}</h3>
+                                    <div className="text-green-600 font-bold">{Math.round(product.nutriments?.['energy-kcal_100g'])} kcal / 100g</div>
+                                </div>
+                            </div>
+                            <button onClick={() => { setScanResult(null); setProduct(null); }} className="mt-4 w-full py-2 bg-gray-100 text-gray-600 rounded-lg">Scan Again</button>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // 4. AI IMAGE COMPONENT
+        const AI_Vision = ({ apiKey }) => {
+            const [image, setImage] = useState(null);
+            const [analysis, setAnalysis] = useState(null);
+            const [loading, setLoading] = useState(false);
+            const fileInputRef = useRef(null);
+
+            const handleImageUpload = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onloadend = () => setImage(reader.result);
+                reader.readAsDataURL(file);
+            };
+
+            const analyzeImage = async () => {
+                if (!apiKey) return alert("Please enter your OpenAI API Key in Settings first!");
+                setLoading(true);
+                try {
+                    const payload = {
+                        model: "gpt-4o",
+                        messages: [
+                            {
+                                role: "user",
+                                content: [
+                                    { type: "text", text: "Identify the food. Return ONLY raw JSON: { \"food_name\": \"...\", \"estimated_calories\": 0, \"protein\": 0, \"carbs\": 0, \"fat\": 0, \"portion_estimation\": \"...\" }" },
+                                    { type: "image_url", image_url: { url: image } }
+                                ]
+                            }
+                        ],
+                        max_tokens: 300
+                    };
+                    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+                        method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+                        body: JSON.stringify(payload)
+                    });
+                    const data = await response.json();
+                    if (data.choices && data.choices[0]) {
+                        let content = data.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '');
+                        setAnalysis(JSON.parse(content));
+                    }
+                } catch (error) { console.error(error); alert("Error analyzing image."); }
+                setLoading(false);
+            };
+
+            return (
+                <div className="p-4 h-full overflow-y-auto content-safe-area">
+                    <h2 className="text-2xl font-bold text-gray-800 mb-4 mt-2">AI Nutritionist</h2>
+
+                    {!image ? (
+                        <div onClick={() => fileInputRef.current.click()} className="border-2 border-dashed border-gray-300 rounded-xl h-64 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-50 transition">
+                            <i className="fa-solid fa-camera text-4xl text-gray-400 mb-2"></i>
+                            <p className="text-gray-500">Tap to take photo</p>
+                            <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+                            <div className="relative h-64 rounded-xl overflow-hidden bg-black">
+                                <img src={image} className="w-full h-full object-contain" />
+                                <button onClick={() => { setImage(null); setAnalysis(null); }} className="absolute top-2 right-2 bg-black/50 text-white w-8 h-8 rounded-full"><i className="fa-solid fa-times"></i></button>
+                            </div>
+                            {!analysis && (
+                                <button onClick={analyzeImage} disabled={loading} className={`w-full py-3 rounded-xl font-bold text-white shadow-lg ${loading ? 'bg-gray-400' : 'bg-purple-600 hover:bg-purple-700'}`}>
+                                    {loading ? <i className="fa-solid fa-circle-notch fa-spin"></i> : "Analyze Nutrition"}
+                                </button>
+                            )}
+                        </div>
+                    )}
+
+                    {analysis && (
+                        <div className="mt-6 bg-white p-4 rounded-xl shadow-lg border-l-4 border-purple-500">
+                            <h3 className="text-xl font-bold text-gray-800 mb-1 capitalize">{analysis.food_name}</h3>
+                            <p className="text-gray-500 text-sm mb-4">Est: {analysis.portion_estimation}</p>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="p-3 bg-gray-50 rounded-lg"><span className="text-gray-500 text-xs block">CALORIES</span><span className="text-xl font-bold">{analysis.estimated_calories}</span></div>
+                                <div className="p-3 bg-gray-50 rounded-lg"><span className="text-gray-500 text-xs block">PROTEIN</span><span className="text-xl font-bold">{analysis.protein}g</span></div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // 5. EXTERNAL API
+        const ExternalAPIs = ({ keys }) => {
+            const [query, setQuery] = useState('');
+            const [data, setData] = useState(null);
+
+            const searchAPI = async () => {
+                if (!keys.edamamId || !keys.edamamKey) return alert("Missing Edamam Keys");
+                try {
+                    const res = await fetch(`https://api.edamam.com/api/food-database/v2/parser?app_id=${keys.edamamId}&app_key=${keys.edamamKey}&ingr=${query}&nutrition-type=cooking`);
+                    const json = await res.json();
+                    setData(json.hints || []);
+                } catch(e) { console.error(e); }
+            };
+
+            return (
+                <div className="p-4 h-full flex flex-col content-safe-area">
+                    <h2 className="text-2xl font-bold text-gray-800 mb-4 mt-2">Edamam API</h2>
+                    <div className="flex space-x-2 mb-4">
+                        <input className="flex-1 p-3 border rounded-lg outline-none focus:border-blue-500" placeholder="Search..." value={query} onChange={e => setQuery(e.target.value)} />
+                        <button onClick={searchAPI} className="bg-blue-600 text-white px-4 rounded-lg">Go</button>
+                    </div>
+                    <div className="flex-1 overflow-y-auto no-scrollbar">
+                        {data && data.map((item, i) => (
+                            <div key={i} className="bg-white p-3 rounded-lg shadow-sm mb-2 border-l-4 border-blue-500">
+                                <div className="font-bold">{item.food.label}</div>
+                                <div className="text-xs text-gray-500">{Math.round(item.food.nutrients.ENERC_KCAL)} kcal</div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )
+        };
+
+        // --- MAIN APP ---
+        const App = () => {
+            const [activeTab, setActiveTab] = useState('search');
+            const [keys, setKeys] = useState(() => {
+                const saved = localStorage.getItem('nutriTrackKeys');
+                return saved ? JSON.parse(saved) : {};
+            });
+
+            return (
+                <div className="flex flex-col h-full overflow-hidden">
+                    {/* Main Content */}
+                    <main className="flex-1 overflow-hidden relative">
+                        {activeTab === 'search' && <Search />}
+                        {activeTab === 'scanner' && <Scanner />}
+                        {activeTab === 'camera' && <AI_Vision apiKey={keys.openai} />}
+                        {activeTab === 'api' && <ExternalAPIs keys={keys} />}
+                        {activeTab === 'settings' && <Settings keys={keys} setKeys={setKeys} />}
+                    </main>
+
+                    {/* Bottom Navigation */}
+                    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 nav-safe-bottom z-50">
+                        <div className="flex justify-around items-center h-16">
+                            <NavBtn icon="fa-magnifying-glass" label="Search" active={activeTab === 'search'} onClick={() => setActiveTab('search')} />
+                            <NavBtn icon="fa-barcode" label="Scan" active={activeTab === 'scanner'} onClick={() => setActiveTab('scanner')} />
+                            <div className="relative -top-5">
+                                <button onClick={() => setActiveTab('camera')} className={`w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-white text-xl transition-transform ${activeTab === 'camera' ? 'bg-purple-700 scale-110' : 'bg-purple-600 hover:scale-105'}`}>
+                                    <i className="fa-solid fa-camera-retro"></i>
+                                </button>
+                            </div>
+                            <NavBtn icon="fa-cloud" label="APIs" active={activeTab === 'api'} onClick={() => setActiveTab('api')} />
+                            <NavBtn icon="fa-gear" label="Settings" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
+                        </div>
+                    </nav>
+                </div>
+            );
+        };
+
+        const NavBtn = ({ icon, label, active, onClick }) => (
+            <button onClick={onClick} className={`flex flex-col items-center justify-center w-16 space-y-1 transition-colors ${active ? 'text-green-600' : 'text-gray-400 hover:text-gray-600'}`}>
+                <i className={`fa-solid ${icon} text-xl`}></i>
+                <span className="text-[10px] font-medium">{label}</span>
+            </button>
+        );
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
