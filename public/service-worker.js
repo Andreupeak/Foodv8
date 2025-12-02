@@ -1,0 +1,2 @@
+"service-worker.js_content": "// Service Worker for PWA\nconst CACHE_NAME = 'foodlog-v1';\nconst urlsToCache = [\n  '/',\n  '/app.js',\n  '/manifest.json'\n];\n\nself.addEventListener('install', event => {\n  event.waitUntil(\n    caches.open(CACHE_NAME)\n      .then(cache => cache.addAll(urlsToCache))\n  );\n});\n\nself.addEventListener('fetch', event => {\n  event.respondWith(\n    caches.match(event.request)\n      .then(response => response || fetch(event.request))\n  );\n});",
+  
